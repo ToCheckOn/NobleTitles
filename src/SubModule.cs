@@ -19,7 +19,7 @@ namespace NobleTitles
         private static readonly string SemVerEnd = (SemVerSpecial is not null) ? "-" + SemVerSpecial : string.Empty;
         public static readonly string Version = $"{SemVerMajor}.{SemVerMinor}.{SemVerPatch}{SemVerEnd}";
 
-        public static readonly string Name = typeof(SubModule).Namespace;
+        public static readonly string Name = "Bannerlord.NobleTitles";
         public static readonly string DisplayName = "Noble Titles"; // to be shown to humans in-game
         public static readonly string HarmonyDomain = "com.zijistark.bannerlord." + Name.ToLower();
 

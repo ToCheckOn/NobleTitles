@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-
+using HarmonyLib;
 using Newtonsoft.Json;
 
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Conversation.Tags;
+using TaleWorlds.Library;
 using TaleWorlds.Localization;
 using TaleWorlds.ObjectSystem;
 
@@ -13,6 +14,17 @@ namespace NobleTitles
 {
     internal sealed class TitleBehavior : CampaignBehaviorBase
     {
+        private readonly AccessTools.FieldRef<Clan, int> _tier = AccessTools.FieldRefAccess<Clan, int>("_tier");
+
+        private int schmuckMaxRenown = 250;
+        private int baronMaxRenown   = 625;
+        private int countMaxRenown   = 1625;
+        private int dukeMaxRenown    = 4250;
+        private int kingMaxRenown    = 6150;
+
+        private float renownDeteriotationMultiplier = 0.01f;
+        private float renownIncreaseAmount = 5;
+
         public override void RegisterEvents()
         {
             CampaignEvents.DailyTickEvent.AddNonSerializedListener(this, OnDailyTick);
@@ -93,6 +105,8 @@ namespace NobleTitles
 
             // Now add currently applicable titles to living heroes
             AddTitlesToLivingHeroes();
+
+            HandleRenownOfKingdomlessClans();
         }
 
         // Leave no trace in the save. Remove all titles from all heroes. Keep their assignment records.
@@ -122,6 +136,31 @@ namespace NobleTitles
                 AddTitlesToKingdomHeroes(k);
         }
 
+        private void HandleRenownOfKingdomlessClans()
+        {
+            foreach (var clan in Campaign.Current.Clans.Where(clan => clan.Kingdom == null))
+            {
+                if (clan.IsEliminated || clan.Leader == null) continue;
+
+                if (GetFiefScore(clan) <= 0)
+                {
+                    HandleRenownDeteriotation(clan, schmuckMaxRenown);
+                }
+                else if(GetFiefScore(clan) > 0 && GetFiefScore(clan) < 9)
+                {
+                    HandleRenownDeteriotation(clan, baronMaxRenown);
+                }
+                else if(GetFiefScore(clan) >= 9 && GetFiefScore(clan) < 20)
+                {
+                    HandleRenownDeteriotation(clan, countMaxRenown);
+                }
+                else if(GetFiefScore(clan) >= 20)
+                {
+                    HandleRenownDeteriotation(clan, dukeMaxRenown);
+                }
+            }
+        }
+
         private void AddTitlesToKingdomHeroes(Kingdom kingdom)
         {
             var tr = new List<string> { $"Adding noble titles to {kingdom.Name}..." };
@@ -139,66 +178,86 @@ namespace NobleTitles
                     !c.IsClanTypeMercenary &&
                     !c.IsUnderMercenaryService &&
                     c.Leader != null &&
-                    c.Leader.IsAlive &&
-                    c.Leader.IsNoble)
+                    c.Leader.IsAlive)
                 .OrderBy(c => GetFiefScore(c))
                 .ThenBy(c => c.Renown)
                 .Select(c => c.Leader)
                 .ToList();
 
-            int nBarons = 0;
-
-            // First, pass over all barons.
-            foreach (var h in vassals)
+            // Pass over poor schmucks 
+            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) <= 0 && !v.IsKingdomLeader))
             {
-                // Are they a baron?
-                if (GetFiefScore(h.Clan) < 3)
-                {
-                    ++nBarons;
-                    AssignRulerTitle(h, titleDb.GetBaronTitle(kingdom.Culture));
-                    tr.Add(GetHeroTrace(h, "BARON"));
-                }
-                else // They must be a count or duke. We're done here.
-                    break;
+                HandleRenownDeteriotation(h.Clan, schmuckMaxRenown);
             }
-
-            // The allowed number of dukes is a third of the total non-baron noble vassals.
-            int nBigVassals = vassals.Count - nBarons;
-            int nDukes = nBigVassals / 3; // Round down
-            int nCounts = nBigVassals - nDukes;
-            int maxDukeIdx = vassals.Count - 1;
-            int maxCountIdx = maxDukeIdx - nDukes;
-            int maxBaronIdx = maxCountIdx - nCounts;
-
-            // Counts:
-            for (int i = maxCountIdx; i > maxBaronIdx; --i)
+            // Pass over all barons.
+            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) > 0 && GetFiefScore(v.Clan) < 9 && !v.IsKingdomLeader))
             {
-                AssignRulerTitle(vassals[i], titleDb.GetCountTitle(kingdom.Culture));
-                tr.Add(GetHeroTrace(vassals[i], "COUNT"));
+                AssignRulerTitle(h, titleDb.GetBaronTitle(kingdom.Culture));
+                tr.Add(GetHeroTrace(h, "BARON"));
+
+                HandleRenownDeteriotation(h.Clan, baronMaxRenown);
+
             }
-
-            // Dukes:
-            for (int i = maxDukeIdx; i > maxCountIdx; --i)
+            // Pass over all counts.
+            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) < 20 && GetFiefScore(v.Clan) >= 9 && !v.IsKingdomLeader))
             {
-                AssignRulerTitle(vassals[i], titleDb.GetDukeTitle(kingdom.Culture));
-                tr.Add(GetHeroTrace(vassals[i], "DUKE"));
+                AssignRulerTitle(h, titleDb.GetCountTitle(kingdom.Culture));
+                tr.Add(GetHeroTrace(h, "COUNT"));
+
+                HandleRenownDeteriotation(h.Clan, countMaxRenown);
+
+            }
+            // Pass over all dukes.
+            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) >= 20 && !v.IsKingdomLeader))
+            {
+                AssignRulerTitle(h, titleDb.GetDukeTitle(kingdom.Culture));
+                tr.Add(GetHeroTrace(h, "DUKE"));
+
+                HandleRenownDeteriotation(h.Clan, dukeMaxRenown);
+
             }
 
             // Finally, the most obvious, the ruler (King) title:
-            if (kingdom.Ruler != null &&
-                !Kingdom.All.Where(k => k != kingdom).SelectMany(k => k.Lords).Where(h => h == kingdom.Ruler).Any()) // fix for stale ruler status in defunct kingdoms
+            if (kingdom.Leader != null &&
+                !Kingdom.All.Where(k => k != kingdom).SelectMany(k => k.Lords).Where(h => h == kingdom.Leader).Any()) // fix for stale ruler status in defunct kingdoms
             {
-                AssignRulerTitle(kingdom.Ruler, titleDb.GetKingTitle(kingdom.Culture));
-                tr.Add(GetHeroTrace(kingdom.Ruler, "KING"));
+                AssignRulerTitle(kingdom.Leader, titleDb.GetKingTitle(kingdom.Culture));
+                tr.Add(GetHeroTrace(kingdom.Leader, "KING"));
+
+                HandleRenownDeteriotation(kingdom.Leader.Clan, kingMaxRenown);
             }
 
             Util.Log.Print(tr);
         }
 
+        private void HandleRenownDeteriotation(Clan clan, int maxRenown)
+        {
+            if (clan.Renown > maxRenown && !(clan.Kingdom != null && clan == clan.Kingdom.RulingClan))
+            {
+                clan.Renown -= (float)Math.Min(clan.Renown * renownDeteriotationMultiplier, clan.Renown - maxRenown);
+                var num = Campaign.Current.Models.ClanTierModel.CalculateTier(clan);
+                if (num != clan.Tier)
+                {
+                    _tier(clan) = num;
+                    CampaignEventDispatcher.Instance.OnClanTierChanged(clan, clan.Leader.IsHumanPlayerCharacter);
+                }
+            }
+            else if (clan.Renown < maxRenown)
+            {
+                clan.Renown += (float)Math.Min(renownIncreaseAmount, maxRenown + clan.Renown);
+                var num = Campaign.Current.Models.ClanTierModel.CalculateTier(clan);
+                if (num != clan.Tier)
+                {
+                    _tier(clan) = num;
+                    CampaignEventDispatcher.Instance.OnClanTierChanged(clan, clan.Leader.IsHumanPlayerCharacter);
+                }
+            }
+        }
+
         private string GetHeroTrace(Hero h, string rank) =>
             $" -> {rank}: {h.Name} [Fief Score: {GetFiefScore(h.Clan)} / Renown: {h.Clan.Renown:F0}]";
 
-        private int GetFiefScore(Clan clan) => clan.Fiefs.Sum(t => t.IsTown ? 3 : 1);
+        private int GetFiefScore(Clan clan) => clan.Fiefs.Sum(t => t.IsTown ? 7 : 2) + clan.Villages.Count();
 
         private void AssignRulerTitle(Hero hero, TitleDb.Entry title)
         {
@@ -241,7 +300,8 @@ namespace NobleTitles
                 assignedTitles[hero] = titlePrefix;
 
             var name = hero.Name.ToString();
-            hero.SetName(new TextObject(titlePrefix + name), new TextObject(name));
+            var firstName = hero.FirstName.ToString();
+            hero.SetName(new TextObject(titlePrefix + name), new TextObject(firstName));
         }
 
         private void RemoveTitlesFromLivingHeroes(bool unregisterTitles = true)
@@ -253,6 +313,7 @@ namespace NobleTitles
         private void RemoveTitleFromHero(Hero hero, bool unregisterTitle = true)
         {
             var name = hero.Name.ToString();
+            var firstName = hero.FirstName.ToString();
             var title = assignedTitles[hero];
 
             if (!name.StartsWith(title))
@@ -264,7 +325,7 @@ namespace NobleTitles
             if (unregisterTitle)
                 assignedTitles.Remove(hero);
 
-            hero.SetName(new TextObject(name.Remove(0, title.Length)));
+            hero.SetName(new TextObject(name.Remove(0, title.Length)), new TextObject(firstName));
         }
 
         private readonly Dictionary<Hero, string> assignedTitles = new Dictionary<Hero, string>();
