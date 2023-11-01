@@ -1,30 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime;
 using HarmonyLib;
 using Newtonsoft.Json;
 
 using TaleWorlds.CampaignSystem;
-using TaleWorlds.CampaignSystem.Conversation.Tags;
-using TaleWorlds.Library;
 using TaleWorlds.Localization;
-using TaleWorlds.ObjectSystem;
 
 namespace NobleTitles
 {
     internal sealed class TitleBehavior : CampaignBehaviorBase
     {
         private readonly AccessTools.FieldRef<Clan, int> _tier = AccessTools.FieldRefAccess<Clan, int>("_tier");
-
-        private int schmuckMaxRenown = 250;
-        private int baronMaxRenown   = 625;
-        private int countMaxRenown   = 1625;
-        private int dukeMaxRenown    = 4250;
-        private int kingMaxRenown    = 6150;
-
-        private float renownDeteriotationMultiplier = 0.01f;
-        private float renownIncreaseAmount = 5;
-
         public override void RegisterEvents()
         {
             CampaignEvents.DailyTickEvent.AddNonSerializedListener(this, OnDailyTick);
@@ -106,6 +94,7 @@ namespace NobleTitles
             // Now add currently applicable titles to living heroes
             AddTitlesToLivingHeroes();
 
+            // Apply Renown change to kingdomless clans
             HandleRenownOfKingdomlessClans();
         }
 
@@ -114,8 +103,8 @@ namespace NobleTitles
         {
             Util.Log.Print($"{nameof(OnBeforeSave)}: Temporarily removing title prefixes from all heroes...");
 
-            foreach (var at in assignedTitles)
-                RemoveTitleFromHero(at.Key, unregisterTitle: false);
+            foreach (var at in assignedTitles.Keys.ToList())
+                RemoveTitleFromHero(at, unregisterTitle: true);
         }
 
         internal void OnAfterSave() // Called from a Harmony patch rather than event dispatch
@@ -123,8 +112,21 @@ namespace NobleTitles
             Util.Log.Print($"{nameof(OnAfterSave)}: Restoring title prefixes to all heroes...");
 
             // Restore all title prefixes to all heroes using the still-existing assignment records.
-            foreach (var at in assignedTitles)
-                AddTitleToHero(at.Key, at.Value, overrideTitle: true, registerTitle: false);
+            AddTitlesToLivingHeroes();
+
+            if (savedDeadTitles != null)
+            {
+                foreach (var item in savedDeadTitles)
+                {
+                    if (Campaign.Current.CampaignObjectManager.Find<Hero>(item.Key) is not Hero hero)
+                    {
+                        Util.Log.Print($">> ERROR: Hero ID lookup failed for hero {item.Key} with title {item.Value}");
+                        continue;
+                    }
+
+                    AddTitleToHero(hero, item.Value);
+                }
+            }
         }
 
         private void AddTitlesToLivingHeroes()
@@ -142,21 +144,21 @@ namespace NobleTitles
             {
                 if (clan.IsEliminated || clan.Leader == null) continue;
 
-                if (GetFiefScore(clan) <= 0)
+                if (GetFiefScore(clan) <= settings.baronTreshold)
                 {
-                    HandleRenownDeteriotation(clan, schmuckMaxRenown);
+                    HandleRenownDeteriotation(clan, settings.noneMaxRenown);
                 }
-                else if(GetFiefScore(clan) > 0 && GetFiefScore(clan) < 9)
+                else if(GetFiefScore(clan) > settings.baronTreshold && GetFiefScore(clan) < settings.countTreshold)
                 {
-                    HandleRenownDeteriotation(clan, baronMaxRenown);
+                    HandleRenownDeteriotation(clan, settings.baronMaxRenown);
                 }
-                else if(GetFiefScore(clan) >= 9 && GetFiefScore(clan) < 20)
+                else if(GetFiefScore(clan) >= settings.countTreshold && GetFiefScore(clan) < settings.dukeTreshold)
                 {
-                    HandleRenownDeteriotation(clan, countMaxRenown);
+                    HandleRenownDeteriotation(clan, settings.countMaxRenown);
                 }
-                else if(GetFiefScore(clan) >= 20)
+                else if(GetFiefScore(clan) >= settings.dukeTreshold)
                 {
-                    HandleRenownDeteriotation(clan, dukeMaxRenown);
+                    HandleRenownDeteriotation(clan, settings.dukeMaxRenown);
                 }
             }
         }
@@ -185,35 +187,35 @@ namespace NobleTitles
                 .ToList();
 
             // Pass over poor schmucks 
-            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) <= 0 && !v.IsKingdomLeader))
+            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) <= settings.baronTreshold && !v.IsKingdomLeader))
             {
-                HandleRenownDeteriotation(h.Clan, schmuckMaxRenown);
+                HandleRenownDeteriotation(h.Clan, settings.noneMaxRenown);
             }
             // Pass over all barons.
-            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) > 0 && GetFiefScore(v.Clan) < 9 && !v.IsKingdomLeader))
+            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) > settings.baronTreshold && GetFiefScore(v.Clan) < settings.countTreshold && !v.IsKingdomLeader))
             {
                 AssignRulerTitle(h, titleDb.GetBaronTitle(kingdom.Culture));
                 tr.Add(GetHeroTrace(h, "BARON"));
 
-                HandleRenownDeteriotation(h.Clan, baronMaxRenown);
+                HandleRenownDeteriotation(h.Clan, settings.baronMaxRenown);
 
             }
             // Pass over all counts.
-            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) < 20 && GetFiefScore(v.Clan) >= 9 && !v.IsKingdomLeader))
+            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) >= settings.countTreshold && GetFiefScore(v.Clan) < settings.dukeTreshold && !v.IsKingdomLeader))
             {
                 AssignRulerTitle(h, titleDb.GetCountTitle(kingdom.Culture));
                 tr.Add(GetHeroTrace(h, "COUNT"));
 
-                HandleRenownDeteriotation(h.Clan, countMaxRenown);
+                HandleRenownDeteriotation(h.Clan, settings.countMaxRenown);
 
             }
             // Pass over all dukes.
-            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) >= 20 && !v.IsKingdomLeader))
+            foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) >= settings.dukeTreshold && !v.IsKingdomLeader))
             {
                 AssignRulerTitle(h, titleDb.GetDukeTitle(kingdom.Culture));
                 tr.Add(GetHeroTrace(h, "DUKE"));
 
-                HandleRenownDeteriotation(h.Clan, dukeMaxRenown);
+                HandleRenownDeteriotation(h.Clan, settings.dukeMaxRenown);
 
             }
 
@@ -224,7 +226,7 @@ namespace NobleTitles
                 AssignRulerTitle(kingdom.Leader, titleDb.GetKingTitle(kingdom.Culture));
                 tr.Add(GetHeroTrace(kingdom.Leader, "KING"));
 
-                HandleRenownDeteriotation(kingdom.Leader.Clan, kingMaxRenown);
+                HandleRenownDeteriotation(kingdom.Leader.Clan, settings.kingMaxRenown);
             }
 
             Util.Log.Print(tr);
@@ -234,7 +236,7 @@ namespace NobleTitles
         {
             if (clan.Renown > maxRenown && !(clan.Kingdom != null && clan == clan.Kingdom.RulingClan))
             {
-                clan.Renown -= (float)Math.Min(clan.Renown * renownDeteriotationMultiplier, clan.Renown - maxRenown);
+                clan.Renown -= (float)Math.Min(clan.Renown * settings.renownDeteriotationMultiplier, clan.Renown - maxRenown);
                 var num = Campaign.Current.Models.ClanTierModel.CalculateTier(clan);
                 if (num != clan.Tier)
                 {
@@ -244,7 +246,7 @@ namespace NobleTitles
             }
             else if (clan.Renown < maxRenown)
             {
-                clan.Renown += (float)Math.Min(renownIncreaseAmount, maxRenown + clan.Renown);
+                clan.Renown += (float)Math.Min(settings.renownIncreaseAmount, maxRenown + clan.Renown);
                 var num = Campaign.Current.Models.ClanTierModel.CalculateTier(clan);
                 if (num != clan.Tier)
                 {
@@ -257,7 +259,7 @@ namespace NobleTitles
         private string GetHeroTrace(Hero h, string rank) =>
             $" -> {rank}: {h.Name} [Fief Score: {GetFiefScore(h.Clan)} / Renown: {h.Clan.Renown:F0}]";
 
-        private int GetFiefScore(Clan clan) => clan.Fiefs.Sum(t => t.IsTown ? 7 : 2) + clan.Villages.Count();
+        private int GetFiefScore(Clan clan) => clan.Fiefs.Sum(t => t.IsTown ? settings.townScore : settings.castleScore) + (clan.Villages.Count() * settings.villageScore);
 
         private void AssignRulerTitle(Hero hero, TitleDb.Entry title)
         {
@@ -318,7 +320,8 @@ namespace NobleTitles
 
             if (!name.StartsWith(title))
             {
-                Util.Log.Print($">> WARNING: Expected title prefix not found in hero name when removing title! Title prefix: \"{title}\" | Name: \"{name}\"");
+                Util.Log.Print($">> WARNING: Expected title prefix not found in hero name when removing title, removing the reference! Title prefix: \"{title}\" | Name: \"{name}\"");
+                assignedTitles.Remove(hero);
                 return;
             }
 
@@ -331,6 +334,8 @@ namespace NobleTitles
         private readonly Dictionary<Hero, string> assignedTitles = new Dictionary<Hero, string>();
 
         private readonly TitleDb titleDb = new TitleDb();
+
+        private Settings settings = Settings.Load();
 
         private Dictionary<string, string>? savedDeadTitles; // Maps a Hero's string ID to a static title prefix for dead heroes, only used for (de)serialization
 
