@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime;
 using HarmonyLib;
 using Newtonsoft.Json;
 
@@ -13,6 +12,7 @@ namespace NobleTitles
     internal sealed class TitleBehavior : CampaignBehaviorBase
     {
         private readonly AccessTools.FieldRef<Clan, int> _tier = AccessTools.FieldRefAccess<Clan, int>("_tier");
+
         public override void RegisterEvents()
         {
             CampaignEvents.DailyTickEvent.AddNonSerializedListener(this, OnDailyTick);
@@ -20,6 +20,7 @@ namespace NobleTitles
             CampaignEvents.OnGameLoadedEvent.AddNonSerializedListener(this, new Action<CampaignGameStarter>(OnGameLoaded));
             CampaignEvents.OnSessionLaunchedEvent.AddNonSerializedListener(this, new Action<CampaignGameStarter>(OnSessionLaunched));
             CampaignEvents.OnBeforeSaveEvent.AddNonSerializedListener(this, OnBeforeSave);
+            CampaignEvents.DailyTickClanEvent.AddNonSerializedListener(this, OnDailyTickClan);
         }
 
         public override void SyncData(IDataStore dataStore)
@@ -86,6 +87,39 @@ namespace NobleTitles
             savedDeadTitles = null;
         }
 
+        private void OnDailyTickClan(Clan clan)
+        {
+            if (clan.Leader == null || clan.IsEliminated || clan.Kingdom == null) return;
+
+            DailyClanTitleResolve(clan.Leader);
+
+            var spouse = clan.Leader.Spouse;
+
+            if (spouse == null ||
+                spouse.IsDead ||
+                (spouse.Clan?.Leader == spouse && spouse.Clan.Kingdom != null))
+                return;
+
+            DailyClanTitleResolve(spouse);
+        }
+
+        private void DailyClanTitleResolve(Hero hero)
+        {
+            var name = hero.Name.ToString();
+            var firstName = hero.FirstName.ToString();
+
+            if (assignedTitles.TryGetValue(hero, out string oldTitlePrefix))
+            {
+                if (name.StartsWith(oldTitlePrefix))
+                {
+                    //Util.Log.Print($">> WARNING: Tried to add title \"{oldTitlePrefix}\" to hero \"{hero.Name}\" with pre-assigned title \"{oldTitlePrefix}\"");
+                    return;
+                }
+
+                hero.SetName(new TextObject(oldTitlePrefix + name), new TextObject(firstName));
+            }
+        }
+
         private void OnDailyTick()
         {
             // Remove and unregister all titles from living heroes
@@ -103,8 +137,8 @@ namespace NobleTitles
         {
             Util.Log.Print($"{nameof(OnBeforeSave)}: Temporarily removing title prefixes from all heroes...");
 
-            foreach (var at in assignedTitles.Keys.ToList())
-                RemoveTitleFromHero(at, unregisterTitle: true);
+            foreach (var at in assignedTitles)
+                RemoveTitleFromHero(at.Key, unregisterTitle: false);
         }
 
         internal void OnAfterSave() // Called from a Harmony patch rather than event dispatch
@@ -112,21 +146,8 @@ namespace NobleTitles
             Util.Log.Print($"{nameof(OnAfterSave)}: Restoring title prefixes to all heroes...");
 
             // Restore all title prefixes to all heroes using the still-existing assignment records.
-            AddTitlesToLivingHeroes();
-
-            if (savedDeadTitles != null)
-            {
-                foreach (var item in savedDeadTitles)
-                {
-                    if (Campaign.Current.CampaignObjectManager.Find<Hero>(item.Key) is not Hero hero)
-                    {
-                        Util.Log.Print($">> ERROR: Hero ID lookup failed for hero {item.Key} with title {item.Value}");
-                        continue;
-                    }
-
-                    AddTitleToHero(hero, item.Value);
-                }
-            }
+            foreach (var at in assignedTitles)
+                AddTitleToHero(at.Key, at.Value, overrideTitle: true, registerTitle: false);
         }
 
         private void AddTitlesToLivingHeroes()
@@ -287,11 +308,14 @@ namespace NobleTitles
 
         private void AddTitleToHero(Hero hero, string titlePrefix, bool overrideTitle = false, bool registerTitle = true)
         {
+            var name = hero.Name.ToString();
+            var firstName = hero.FirstName.ToString();
+
             if (assignedTitles.TryGetValue(hero, out string oldTitlePrefix))
             {
-                if (overrideTitle && !titlePrefix.Equals(oldTitlePrefix))
+                if (overrideTitle && !titlePrefix.Equals(oldTitlePrefix) && name.StartsWith(oldTitlePrefix))
                     RemoveTitleFromHero(hero);
-                else if (!overrideTitle)
+                else if (!overrideTitle && name.StartsWith(oldTitlePrefix))
                 {
                     Util.Log.Print($">> WARNING: Tried to add title \"{titlePrefix}\" to hero \"{hero.Name}\" with pre-assigned title \"{oldTitlePrefix}\"");
                     return;
@@ -301,13 +325,13 @@ namespace NobleTitles
             if (registerTitle)
                 assignedTitles[hero] = titlePrefix;
 
-            var name = hero.Name.ToString();
-            var firstName = hero.FirstName.ToString();
+            
             hero.SetName(new TextObject(titlePrefix + name), new TextObject(firstName));
         }
 
         private void RemoveTitlesFromLivingHeroes(bool unregisterTitles = true)
         {
+            Util.Log.Print($"Removing noble titles...");
             foreach (var h in assignedTitles.Keys.Where(h => h.IsAlive).ToList())
                 RemoveTitleFromHero(h, unregisterTitles);
         }
@@ -321,7 +345,6 @@ namespace NobleTitles
             if (!name.StartsWith(title))
             {
                 Util.Log.Print($">> WARNING: Expected title prefix not found in hero name when removing title, removing the reference! Title prefix: \"{title}\" | Name: \"{name}\"");
-                assignedTitles.Remove(hero);
                 return;
             }
 
