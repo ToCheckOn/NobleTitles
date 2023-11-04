@@ -1,10 +1,4 @@
 ﻿using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime;
-using System.Text;
-using System.Threading.Tasks;
 using static NobleTitles.TitleDb;
 using TaleWorlds.Library;
 using System.IO;
@@ -30,10 +24,18 @@ namespace NobleTitles
         public float renownDeteriotationMultiplier;
         public float renownIncreaseAmount;
 
+        public float renownLossThresholdForRelationshipChange;
+
+        public bool enableRenownDeteriotationModule;
+        public bool enableNobleTitlesModule;
+        public bool enableRelationModule;
+
         public Settings(int noneMaxRenown, int baronMaxRenown, int countMaxRenown, int dukeMaxRenown, int kingMaxRenown,
-                            int townScore, int castleScore, int villageScore,
-                            int baronTreshold, int countTreshold, int dukeTreshold,
-                            float renownDeteriotationMultiplier, float renownIncreaseAmount)
+                        int townScore, int castleScore, int villageScore,
+                        int baronTreshold, int countTreshold, int dukeTreshold,
+                        float renownDeteriotationMultiplier, float renownIncreaseAmount,
+                        float renownLossThresholdForRelationshipChange,
+                        bool enableRenownDegradation, bool enableNobleTitles, bool enableRelationModule)
         {
             this.noneMaxRenown = noneMaxRenown;
             this.baronMaxRenown = baronMaxRenown;
@@ -51,6 +53,12 @@ namespace NobleTitles
 
             this.renownDeteriotationMultiplier = renownDeteriotationMultiplier;
             this.renownIncreaseAmount = renownIncreaseAmount;
+
+            this.renownLossThresholdForRelationshipChange = renownLossThresholdForRelationshipChange;
+
+            this.enableRenownDeteriotationModule = enableRenownDegradation;
+            this.enableNobleTitlesModule = enableNobleTitles;
+            this.enableRelationModule = enableRelationModule;
         }
 
         public static Settings Load()

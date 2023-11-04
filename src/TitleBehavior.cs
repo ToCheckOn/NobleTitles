@@ -1,10 +1,13 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
 using Newtonsoft.Json;
 
 using TaleWorlds.CampaignSystem;
+using TaleWorlds.CampaignSystem.CampaignBehaviors;
+using TaleWorlds.CampaignSystem.Election;
 using TaleWorlds.Localization;
 
 namespace NobleTitles
@@ -85,6 +88,8 @@ namespace NobleTitles
             }
 
             savedDeadTitles = null;
+
+            RelationshipGainsDB.Init();
         }
 
         private void OnDailyTickClan(Clan clan)
@@ -124,12 +129,15 @@ namespace NobleTitles
         {
             // Remove and unregister all titles from living heroes
             RemoveTitlesFromLivingHeroes();
-
+            
             // Now add currently applicable titles to living heroes
             AddTitlesToLivingHeroes();
 
             // Apply Renown change to kingdomless clans
             HandleRenownOfKingdomlessClans();
+
+            // Apply relationship changes
+            HandleRelationshipChanges();
         }
 
         // Leave no trace in the save. Remove all titles from all heroes. Keep their assignment records.
@@ -184,6 +192,14 @@ namespace NobleTitles
             }
         }
 
+        private void HandleRelationshipChanges()
+        {
+            foreach (var relationshipModel in kingdomRelationshipMap.Values)
+                relationshipModel.HandleRelationship();
+
+            kingdomRelationshipMap.Clear();
+        }
+
         private void AddTitlesToKingdomHeroes(Kingdom kingdom)
         {
             var tr = new List<string> { $"Adding noble titles to {kingdom.Name}..." };
@@ -206,6 +222,8 @@ namespace NobleTitles
                 .ThenBy(c => c.Renown)
                 .Select(c => c.Leader)
                 .ToList();
+
+            kingdomRelationshipMap[kingdom] = new RelationshipModel(kingdom.Leader);
 
             // Pass over poor schmucks 
             foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) <= settings.baronTreshold && !v.IsKingdomLeader))
@@ -255,9 +273,18 @@ namespace NobleTitles
 
         private void HandleRenownDeteriotation(Clan clan, int maxRenown)
         {
+            if(!settings.enableRenownDeteriotationModule) return;
+
             if (clan.Renown > maxRenown && !(clan.Kingdom != null && clan == clan.Kingdom.RulingClan))
             {
-                clan.Renown -= (float)Math.Min(clan.Renown * settings.renownDeteriotationMultiplier, clan.Renown - maxRenown);
+                var renownLoss = (float)Math.Min(clan.Renown * settings.renownDeteriotationMultiplier, clan.Renown - maxRenown);
+                clan.Renown -= renownLoss;
+
+                if(settings.enableRelationModule && clan.Kingdom != null && renownLoss > settings.renownLossThresholdForRelationshipChange)
+                {
+                    kingdomRelationshipMap[clan.Kingdom].AddVassalState(clan.Leader, false);
+                }
+                
                 var num = Campaign.Current.Models.ClanTierModel.CalculateTier(clan);
                 if (num != clan.Tier)
                 {
@@ -267,7 +294,14 @@ namespace NobleTitles
             }
             else if (clan.Renown < maxRenown)
             {
-                clan.Renown += (float)Math.Min(settings.renownIncreaseAmount, maxRenown + clan.Renown);
+                var renownGain = (float)Math.Min(settings.renownIncreaseAmount, maxRenown + clan.Renown);
+                clan.Renown += renownGain;
+
+                if (settings.enableRelationModule && clan.Kingdom != null)
+                {
+                    kingdomRelationshipMap[clan.Kingdom].AddVassalState(clan.Leader, true);
+                }
+
                 var num = Campaign.Current.Models.ClanTierModel.CalculateTier(clan);
                 if (num != clan.Tier)
                 {
@@ -308,6 +342,8 @@ namespace NobleTitles
 
         private void AddTitleToHero(Hero hero, string titlePrefix, bool overrideTitle = false, bool registerTitle = true)
         {
+            if (!settings.enableNobleTitlesModule) return;
+
             var name = hero.Name.ToString();
             var firstName = hero.FirstName.ToString();
 
@@ -338,6 +374,8 @@ namespace NobleTitles
 
         private void RemoveTitleFromHero(Hero hero, bool unregisterTitle = true)
         {
+            if (!settings.enableNobleTitlesModule) return;
+
             var name = hero.Name.ToString();
             var firstName = hero.FirstName.ToString();
             var title = assignedTitles[hero];
@@ -355,6 +393,8 @@ namespace NobleTitles
         }
 
         private readonly Dictionary<Hero, string> assignedTitles = new Dictionary<Hero, string>();
+
+        private Dictionary<Kingdom, RelationshipModel> kingdomRelationshipMap = new Dictionary<Kingdom, RelationshipModel>();
 
         private readonly TitleDb titleDb = new TitleDb();
 
