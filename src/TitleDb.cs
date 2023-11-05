@@ -21,6 +21,9 @@ namespace NobleTitles
         internal Entry GetBaronTitle(CultureObject culture) =>
             culture is null || !cultureMap.TryGetValue(culture.StringId, out var culEntry) ? noCulture.Baron : culEntry.Baron;
 
+        internal Entry GetLordTitle(CultureObject culture) =>
+            culture is null || !cultureMap.TryGetValue(culture.StringId, out var culEntry) ? noCulture.Lord : culEntry.Lord;
+
         internal string StripTitlePrefixes(Hero hero)
         {
             var prevName = hero.Name.ToString();
@@ -36,6 +39,7 @@ namespace NobleTitles
                         newName = StripTitlePrefix(newName, ce.Duke.Female);
                         newName = StripTitlePrefix(newName, ce.Count.Female);
                         newName = StripTitlePrefix(newName, ce.Baron.Female);
+                        newName = StripTitlePrefix(newName, ce.Lord.Female);
                     }
                     else
                     {
@@ -43,6 +47,7 @@ namespace NobleTitles
                         newName = StripTitlePrefix(newName, ce.Duke.Male);
                         newName = StripTitlePrefix(newName, ce.Count.Male);
                         newName = StripTitlePrefix(newName, ce.Baron.Male);
+                        newName = StripTitlePrefix(newName, ce.Lord.Male);
                     }
                 }
 
@@ -77,11 +82,11 @@ namespace NobleTitles
             {
                 var (cul, entry) = (i.Key, i.Value);
 
-                if (entry.King is null || entry.Duke is null || entry.Count is null || entry.Baron is null)
+                if (entry.King is null || entry.Duke is null || entry.Count is null || entry.Baron is null || entry.Lord is null)
                     throw new BadTitleDatabaseException($"All title types must be defined for culture '{cul}'!");
 
                 if (string.IsNullOrWhiteSpace(entry.King.Male) || string.IsNullOrWhiteSpace(entry.Duke.Male) ||
-                    string.IsNullOrWhiteSpace(entry.Count.Male) || string.IsNullOrWhiteSpace(entry.Baron.Male))
+                    string.IsNullOrWhiteSpace(entry.Count.Male) || string.IsNullOrWhiteSpace(entry.Baron.Male) || string.IsNullOrWhiteSpace(entry.Lord.Male))
                     throw new BadTitleDatabaseException($"Missing at least one male variant of a title type for culture '{cul}'");
 
                 // Missing feminine titles default to equivalent masculine/neutral titles:
@@ -89,6 +94,7 @@ namespace NobleTitles
                 if (string.IsNullOrWhiteSpace(entry.Duke.Female)) entry.Duke.Female = entry.Duke.Male;
                 if (string.IsNullOrWhiteSpace(entry.Count.Female)) entry.Count.Female = entry.Count.Male;
                 if (string.IsNullOrWhiteSpace(entry.Baron.Female)) entry.Baron.Female = entry.Baron.Male;
+                if (string.IsNullOrWhiteSpace(entry.Lord.Female)) entry.Lord.Female = entry.Lord.Male;
 
                 // Commonly, we want the full title prefix, i.e. including the trailing space, so we just use
                 // such strings natively instead of constantly doing string creation churn just to append a space:
@@ -100,6 +106,8 @@ namespace NobleTitles
                 entry.Count.Female += " ";
                 entry.Baron.Male += " ";
                 entry.Baron.Female += " ";
+                entry.Lord.Male += " ";
+                entry.Lord.Female += " ";
 
                 if (cul == "default")
                     noCulture = entry;
@@ -119,6 +127,8 @@ namespace NobleTitles
                 e.Count.Female = RmEndChar(e.Count.Female);
                 e.Baron.Male = RmEndChar(e.Baron.Male);
                 e.Baron.Female = RmEndChar(e.Baron.Female);
+                e.Lord.Male = RmEndChar(e.Lord.Male);
+                e.Lord.Female = RmEndChar(e.Lord.Female);
             }
 
             File.WriteAllText(Path, JsonConvert.SerializeObject(cultureMap, Formatting.Indented));
@@ -134,13 +144,15 @@ namespace NobleTitles
             public readonly Entry Duke;
             public readonly Entry Count;
             public readonly Entry Baron;
+            public readonly Entry Lord;
 
-            public CultureEntry(Entry king, Entry duke, Entry count, Entry baron)
+            public CultureEntry(Entry king, Entry duke, Entry count, Entry baron, Entry lord)
             {
                 King = king;
                 Duke = duke;
                 Count = count;
                 Baron = baron;
+                Lord = lord;
             }
         }
 
@@ -170,6 +182,6 @@ namespace NobleTitles
         // culture StringId => CultureEntry (contains bulk of title information, only further split by gender)
         protected Dictionary<string, CultureEntry> cultureMap;
 
-        protected CultureEntry noCulture = new(new("King", "Queen"), new("Duke", "Duchess"), new("Count", "Countess"), new("Baron", "Baroness"));
+        protected CultureEntry noCulture = new(new("King", "Queen"), new("Duke", "Duchess"), new("Count", "Countess"), new("Baron", "Baroness"), new("Lord","Lady"));
     }
 }

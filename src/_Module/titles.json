@@ -15,6 +15,10 @@
     "Baron": {
       "Male": "Baron",
       "Female": "Baroness"
+    },
+    "Lord": {
+      "Male": "Lord",
+      "Female": "Lady"
     }
   },
   "vlandia": {
@@ -33,6 +37,10 @@
     "Baron": {
       "Male": "Baron",
       "Female": "Baroness"
+    },
+    "Lord": {
+      "Male": "Lord",
+      "Female": "Lady"
     }
   },
   "empire": {
@@ -41,16 +49,20 @@
       "Female": "Empress"
     },
     "Duke": {
-      "Male": "Duke",
-      "Female": "Duchess"
+      "Male": "Dux",
+      "Female": "Ducissa"
     },
     "Count": {
-      "Male": "Catepan",
-      "Female": "Kyria"
+      "Male": "Comes",
+      "Female": "Comitissa"
     },
     "Baron": {
-      "Male": "Strategos",
-      "Female": "Kyria"
+      "Male": "Baro",
+      "Female": "Baronissa"
+    },
+    "Lord": {
+      "Male": "Eques",
+      "Female": "Eques"
     }
   },
   "sturgia": {
@@ -63,12 +75,16 @@
       "Female": "Princess"
     },
     "Count": {
-      "Male": "Jarl",
-      "Female": "Jarl"
-    },
-    "Baron": {
       "Male": "Boyar",
       "Female": "Boyarina"
+    },
+    "Baron": {
+      "Male": "Voivode",
+      "Female": "Voivode"
+    },
+    "Lord": {
+      "Male": "Knyaz",
+      "Female": "Knyazhina"
     }
   },
   "battania": {
@@ -78,7 +94,7 @@
     },
     "Duke": {
       "Male": "Mormaer",
-      "Female": "Bantiarna"
+      "Female": "Banmormaer"
     },
     "Count": {
       "Male": "High Chief",
@@ -87,6 +103,10 @@
     "Baron": {
       "Male": "Chief",
       "Female": "Chieftess"
+    },
+    "Lord": {
+      "Male": "Tiarna",
+      "Female": "Bantiarna"
     }
   },
   "khuzait": {
@@ -105,16 +125,20 @@
     "Baron": {
       "Male": "Bey",
       "Female": "Begum"
+    },
+    "Lord": {
+      "Male": "Taishi",
+      "Female": "Gonji"
     }
   },
   "aserai": {
     "King": {
-      "Male": "Sultan",
-      "Female": "Sultana"
+      "Male": "Malik",
+      "Female": "Malika"
     },
     "Duke": {
-      "Male": "Prince",
-      "Female": "Princess"
+      "Male": "Sultan",
+      "Female": "Sultana"
     },
     "Count": {
       "Male": "Emir",
@@ -123,6 +147,10 @@
     "Baron": {
       "Male": "Sheikh",
       "Female": "Sheikha"
+    },
+    "Lord": {
+      "Male": "Sayidi",
+      "Female": "Al-hurra"
     }
   }
 }

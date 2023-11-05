@@ -223,11 +223,23 @@ namespace NobleTitles
                 .Select(c => c.Leader)
                 .ToList();
 
+            var nobles = kingdom.Clans
+                .Where(c =>
+                    !c.IsClanTypeMercenary &&
+                    !c.IsUnderMercenaryService &&
+                    c.Leader != null &&
+                    c.Leader.IsAlive)
+                .SelectMany(c => c.Lords)
+                .ToList();
+
             kingdomRelationshipMap[kingdom] = new RelationshipModel(kingdom.Leader);
 
-            // Pass over poor schmucks 
+            // Pass over poor schmucks
             foreach (var h in vassals.Where(v => GetFiefScore(v.Clan) <= settings.baronTreshold && !v.IsKingdomLeader))
             {
+                AssignRulerTitle(h, titleDb.GetLordTitle(kingdom.Culture));
+                tr.Add(GetHeroTrace(h, "LORD"));
+
                 HandleRenownDeteriotation(h.Clan, settings.noneMaxRenown);
             }
             // Pass over all barons.
@@ -256,6 +268,14 @@ namespace NobleTitles
 
                 HandleRenownDeteriotation(h.Clan, settings.dukeMaxRenown);
 
+            }
+            // Pass overr all noble clan members
+            foreach(var h in nobles.Where(n => n.Clan.Leader != n
+                                               && (n.Clan.Leader.Spouse != null ? n != n.Clan.Leader.Spouse : true)
+                                               ))
+            {
+                AssignRulerTitle(h, titleDb.GetLordTitle(kingdom.Culture));
+                tr.Add(GetHeroTrace(h, "LORD"));
             }
 
             // Finally, the most obvious, the ruler (King) title:
